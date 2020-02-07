@@ -122,6 +122,12 @@ class AdalAuthentication(Authentication):  # pylint: disable=too-few-public-meth
         logger.debug("AdalAuthentication.signed_session invoked by Track 1 SDK")
         session = session or super(AdalAuthentication, self).signed_session()
 
+        private_cert = os.environ.get("AZURE_CLI_CLIENT_CERT_PATH")
+        if private_cert is not None and private_cert != "":
+            session.cert = private_cert
+            session.verify = False
+            return session
+
         scheme, token, _, external_tenant_tokens = self._get_token()
 
         header = "{} {}".format(scheme, token)
