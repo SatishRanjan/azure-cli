@@ -52,14 +52,15 @@ from .vsts_cd_provider import VstsContinuousDeliveryProvider
 from ._params import AUTH_TYPES, MULTI_CONTAINER_TYPES, LINUX_RUNTIMES, WINDOWS_RUNTIMES
 from ._client_factory import web_client_factory, ex_handler_factory
 from ._appservice_utils import _generic_site_operation
-from .utils import _normalize_sku, get_sku_name, retryable_method
+from .utils import _normalize_sku, get_sku_name, retryable_method, validate_subnet_id
 from ._create_util import (zip_contents_from_dir, get_runtime_version_details, create_resource_group, get_app_details,
                            should_create_new_rg, set_location, does_app_already_exist, get_profile_username,
                            get_plan_to_use, get_lang_from_content, get_rg_to_use, get_sku_to_use,
                            detect_os_form_src)
 from ._constants import (FUNCTIONS_VERSION_TO_DEFAULT_RUNTIME_VERSION, FUNCTIONS_VERSION_TO_DEFAULT_NODE_VERSION,
                          FUNCTIONS_VERSION_TO_SUPPORTED_RUNTIME_VERSIONS, NODE_VERSION_DEFAULT,
-                         DOTNET_RUNTIME_VERSION_TO_DOTNET_LINUX_FX_VERSION)
+                         DOTNET_RUNTIME_VERSION_TO_DOTNET_LINUX_FX_VERSION, KUBE_DEFAULT_SKU,
+                         KUBE_ASP_KIND, KUBE_APP_KIND)
 
 logger = get_logger(__name__)
 
@@ -73,7 +74,8 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
                   deployment_container_image_name=None, deployment_source_url=None, deployment_source_branch='master',
                   deployment_local_git=None, docker_registry_server_password=None, docker_registry_server_user=None,
                   multicontainer_config_type=None, multicontainer_config_file=None, tags=None,
-                  using_webapp_up=False, language=None):
+                  using_webapp_up=False, language=None,
+                  min_worker_count=None, max_worker_count=None):
     SiteConfig, SkuDescription, Site, NameValuePair = cmd.get_models(
         'SiteConfig', 'SkuDescription', 'Site', 'NameValuePair')
     if deployment_source_url and deployment_local_git:
@@ -108,9 +110,22 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
         site_config.always_on = True
     webapp_def = Site(location=location, site_config=site_config, server_farm_id=plan_info.id, tags=tags,
                       https_only=using_webapp_up)
-    helper = _StackRuntimeHelper(cmd, client, linux=is_linux)
 
-    if is_linux:
+    is_kube = False
+    if plan_info.kind.upper() == KUBE_ASP_KIND:
+        webapp_def.kind = KUBE_APP_KIND
+        is_kube = True
+
+    if is_kube:
+        if min_worker_count is not None:
+            site_config.number_of_workers = min_worker_count
+
+        if max_worker_count is not None:
+            site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
+
+    helper = _StackRuntimeHelper(cmd, client, linux=(is_linux or is_kube))
+
+    if is_linux or is_kube:
         if not validate_container_app_create_options(runtime, deployment_container_image_name,
                                                      multicontainer_config_type, multicontainer_config_file):
             raise CLIError("usage error: --runtime | --deployment-container-image-name |"
@@ -170,6 +185,9 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
 
     poller = client.web_apps.create_or_update(resource_group_name, name, webapp_def)
     webapp = LongRunningOperation(cmd.cli_ctx)(poller)
+
+    if is_kube:
+        return webapp
 
     # Ensure SCC operations follow right after the 'create', no precedent appsetting update commands
     _set_remote_or_local_git(cmd, webapp, resource_group_name, name, deployment_source_url,
@@ -562,7 +580,11 @@ def show_webapp(cmd, resource_group_name, name, slot=None, app_instance=None):
     if not webapp:
         raise CLIError("'{}' app doesn't exist".format(name))
     _rename_server_farm_props(webapp)
-    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name, slot)
+
+    # TODO: get rid of this conditional once the api's are implemented for kubapps
+    if webapp.kind.lower() != KUBE_APP_KIND:
+        _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name, slot)
+
     return webapp
 
 
@@ -1484,14 +1506,16 @@ def list_app_service_plans(cmd, resource_group_name=None):
 
 
 def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, per_site_scaling=False,
-                            app_service_environment=None, sku='B1', number_of_workers=None, location=None,
-                            tags=None, no_wait=False):
-    HostingEnvironmentProfile, SkuDescription, AppServicePlan = cmd.get_models(
-        'HostingEnvironmentProfile', 'SkuDescription', 'AppServicePlan')
+                            app_service_environment=None, kube_environment=None, sku='B1', kube_sku=KUBE_DEFAULT_SKU,
+                            number_of_workers=None, location=None, tags=None, no_wait=False):
+    HostingEnvironmentProfile, SkuDescription, AppServicePlan, KubeEnvironmentProfile = cmd.get_models(
+        'HostingEnvironmentProfile', 'SkuDescription', 'AppServicePlan', 'KubeEnvironmentProfile')
     sku = _normalize_sku(sku)
     _validate_asp_sku(app_service_environment, sku)
     if is_linux and hyper_v:
         raise CLIError('usage error: --is-linux | --hyper-v')
+
+    kind = None
 
     client = web_client_factory(cmd.cli_ctx)
     if app_service_environment:
@@ -1510,30 +1534,61 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
             raise CLIError("App service environment '{}' not found in subscription.".format(ase_id))
     else:  # Non-ASE
         ase_def = None
-        if location is None:
-            location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
 
-    # the api is odd on parameter naming, have to live with it for now
-    sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
-    plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def,
+    if kube_environment and ase_def is None:
+        kube_id = _validate_kube_environment_id(cmd.cli_ctx, kube_environment, resource_group_name)
+        kube_def = KubeEnvironmentProfile(id=kube_id)
+        kind = KUBE_ASP_KIND
+        parsed_id = parse_resource_id(kube_id)
+        kube_name = parsed_id.get("name")
+        kube_rg = parsed_id.get("resource_group")
+        if kube_name is not None and kube_rg is not None:
+            kube_env = _get_kube_environment(cmd, kube_name, kube_rg)
+            if kube_env is not None:
+                location = kube_env.location
+            else:
+                raise CLIError("Kube Environment '{}' not found in subscription.".format(kube_id))
+    else:
+        kube_def = None
+
+    if location is None:
+        location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
+
+    if kube_environment:
+        sku_def = SkuDescription(tier=kube_sku, name="KUBE", capacity=number_of_workers)
+    else:
+        # the api is odd on parameter naming, have to live with it for now
+        sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
+
+    plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def, kind=kind,
                               reserved=(is_linux or None), hyper_v=(hyper_v or None), name=name,
-                              per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def)
+                              per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def,
+                              kube_environment_profile=kube_def)
     return sdk_no_wait(no_wait, client.app_service_plans.create_or_update, name=name,
                        resource_group_name=resource_group_name, app_service_plan=plan_def)
 
 
-def update_app_service_plan(instance, sku=None, number_of_workers=None):
-    if number_of_workers is None and sku is None:
-        logger.warning('No update is done. Specify --sku and/or --number-of-workers.')
+def update_app_service_plan(instance, sku=None, number_of_workers=None, per_site_scaling=None,
+                            kube_sku=KUBE_DEFAULT_SKU):
+    if number_of_workers is None and sku is None and per_site_scaling is None:
+        logger.warning(
+            'No update is done. Specify --sku and/or --kube-sku and/or --number-of-workers and/or --per-site-scaling.')
     sku_def = instance.sku
     if sku is not None:
         sku = _normalize_sku(sku)
         sku_def.tier = get_sku_name(sku)
         sku_def.name = sku
 
+    if kube_sku is not None:
+        sku_def.tier = kube_sku
+
     if number_of_workers is not None:
         sku_def.capacity = number_of_workers
     instance.sku = sku_def
+
+    if per_site_scaling is not None:
+        instance.per_site_scaling = per_site_scaling
+
     return instance
 
 
@@ -2442,7 +2497,8 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
                     disable_app_insights=None, deployment_source_url=None,
                     deployment_source_branch='master', deployment_local_git=None,
                     docker_registry_server_password=None, docker_registry_server_user=None,
-                    deployment_container_image_name=None, tags=None):
+                    deployment_container_image_name=None, tags=None,
+                    min_worker_count=None, max_worker_count=None):
     # pylint: disable=too-many-statements, too-many-branches
     if functions_version is None:
         logger.warning("No functions version specified so defaulting to 2. In the future, specifying a version will "
@@ -2484,6 +2540,17 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
         is_linux = plan_info.reserved
         functionapp_def.server_farm_id = plan
         functionapp_def.location = location
+
+    is_kube = False
+    if plan_info.kind.upper() == KUBE_ASP_KIND:
+        is_kube = True
+
+    if is_kube:
+        if min_worker_count is not None:
+            site_config.number_of_workers = min_worker_count    
+
+        if max_worker_count is not None:
+            site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
 
     if is_linux and not runtime and (consumption_plan_location or not deployment_container_image_name):
         raise CLIError(
@@ -2540,6 +2607,22 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
                                    "functions_version: '{}' was not found".format(runtime, functions_version))
         if deployment_container_image_name is None:
             site_config.linux_fx_version = _get_linux_fx_functionapp(functions_version, runtime, runtime_version)
+    elif is_kube:
+        functionapp_def.kind = 'kubeapp,functionapp,linux'
+        functionapp_def.reserved = True
+        site_config.app_settings.append(NameValuePair(name='WEBSITES_PORT', value='80'))
+        site_config.app_settings.append(NameValuePair(name='FUNCTIONS_EXTENSION_VERSION', value='~2'))
+        site_config.app_settings.append(NameValuePair(name='MACHINEKEY_DecryptionKey',
+                                                      value=str(hexlify(urandom(32)).decode()).upper()))
+        if deployment_container_image_name:
+            functionapp_def.kind = 'kubeapp,functionapp,linux,container'
+            site_config.app_settings.append(NameValuePair(name='DOCKER_CUSTOM_IMAGE_NAME',
+                                                          value=deployment_container_image_name))
+            site_config.app_settings.append(NameValuePair(name='FUNCTION_APP_EDIT_MODE', value='readOnly'))
+            site_config.linux_fx_version = _format_fx_version(deployment_container_image_name)
+        else:
+            site_config.app_settings.append(NameValuePair(name='WEBSITES_ENABLE_APP_SERVICE_STORAGE', value='true'))
+            site_config.linux_fx_version = _get_linux_fx_kube_functionapp(runtime, runtime_version)                                                   
     else:
         functionapp_def.kind = 'functionapp'
         if runtime == "java":
@@ -2619,6 +2702,10 @@ def _get_linux_fx_functionapp(functions_version, runtime, runtime_version):
         runtime = runtime.upper()
     return '{}|{}'.format(runtime, runtime_version)
 
+def _get_linux_fx_kube_functionapp(runtime, runtime_version):
+    if runtime.upper() == "DOTNET":
+        runtime = "DOTNETCORE"       
+    return '{}|{}'.format(runtime.upper(), runtime_version)
 
 def _get_website_node_version_functionapp(functions_version, runtime, runtime_version):
     if runtime is None or runtime != 'node':
@@ -3490,6 +3577,19 @@ def _validate_app_service_environment_id(cli_ctx, ase, resource_group_name):
         type='hostingEnvironments',
         name=ase)
 
+def _validate_kube_environment_id(cli_ctx, kube_environment, resource_group_name):
+    if is_valid_resource_id(kube_environment):
+        return kube_environment
+
+    from msrestazure.tools import resource_id
+    from azure.cli.core.commands.client_factory import get_subscription_id
+    return resource_id(
+        subscription=get_subscription_id(cli_ctx),
+        resource_group=resource_group_name,
+        namespace='Microsoft.Web',
+        type='kubeEnvironments',
+        name=kube_environment)
+
 
 def _validate_asp_sku(app_service_environment, sku):
     # Isolated SKU is supported only for ASE
@@ -3528,3 +3628,93 @@ def _verify_hostname_binding(cmd, resource_group_name, name, hostname, slot=None
             verified_hostname_found = True
 
     return verified_hostname_found
+
+
+def create_kube_environment(cmd,
+                            name,
+                            resource_group_name,
+                            client_id,
+                            client_secret,
+                            node_count=3,
+                            max_count=3,
+                            location=None,
+                            nodepool_name='nodepool1',
+                            node_vm_size='Standard_DS2_v2',
+                            network_plugin='kubenet',
+                            internal_load_balancing=False,
+                            subnet=None,
+                            vnet_name=None,
+                            dns_service_ip=None,
+                            service_cidr=None,
+                            docker_bridge_cidr=None,
+                            workspace_id=None,
+                            tags=None,
+                            no_wait=False):
+
+    KubeEnvironmentResource, KubeNodePool = cmd.get_models('KubeEnvironmentResource', 'KubeNodePool')
+    location = location or _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
+
+    if subnet is not None:
+        subnet_id = validate_subnet_id(cmd.cli_ctx, subnet, vnet_name, resource_group_name)
+    else:
+        subnet_id = None
+
+    client = web_client_factory(cmd.cli_ctx)
+
+    # TODO: add some verifications
+    # TODO: support creating service principal automatically
+
+    node_pool_def = KubeNodePool(
+        vm_size=node_vm_size,
+        node_count=node_count,
+        max_node_count=max_count,
+        name=nodepool_name)
+
+    kube_def = KubeEnvironmentResource(
+        location=location,
+        tags=tags,
+        node_pools=[node_pool_def],
+        internal_load_balancer_enabled=internal_load_balancing,
+        vnet_subnet_id=subnet_id,
+        network_plugin=network_plugin,
+        service_cidr=service_cidr,
+        dns_service_ip=dns_service_ip,
+        docker_bridge_cidr=docker_bridge_cidr,
+        service_principal_client_id=client_id,
+        service_principal_client_secret=client_secret,
+        log_analytics_workspace_id=workspace_id)
+
+    return sdk_no_wait(no_wait, client.kube_environments.create, resource_group_name, name, kube_def)
+
+
+def show_kube_environment(cmd, name, resource_group_name):
+    return _get_kube_environment(cmd, name, resource_group_name)
+
+
+def list_kube_environments(cmd, resource_group_name=None):
+    client = web_client_factory(cmd.cli_ctx)
+    if resource_group_name is None:
+        return client.kube_environments.list_by_subscription()
+    else:
+        return client.kube_environments.list_by_resource_group(resource_group_name)
+
+
+def update_kube_environment(cmd,
+                            name,
+                            resource_group_name,
+                            client_id=None,
+                            client_secret=None,
+                            workspace_id=None,
+                            tags=None,
+                            no_wait=False):
+    raise CLIError("Update is not yet supported for Kubernetes Environments.")
+
+
+def delete_kube_environment(cmd, name, resource_group_name, force=False, no_wait=False):
+    client = web_client_factory(cmd.cli_ctx)
+    return sdk_no_wait(no_wait, client.kube_environments.delete, resource_group_name, name, force)
+
+
+def _get_kube_environment(cmd, name, resource_group_name):
+    client = web_client_factory(cmd.cli_ctx)
+    return client.kube_environments.get(resource_group_name, name)

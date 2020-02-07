@@ -63,3 +63,23 @@ def retryable_method(retries=3, interval_sec=5, excpt_type=Exception):
                 time.sleep(interval_sec)
         return call
     return decorate
+
+
+def validate_subnet_id(cli_ctx, subnet, vnet_name, resource_group_name):
+    from msrestazure.tools import is_valid_resource_id
+    subnet_is_id = is_valid_resource_id(subnet)
+
+    if subnet_is_id and not vnet_name:
+        return subnet
+    if subnet and not subnet_is_id and vnet_name:
+        from msrestazure.tools import resource_id
+        from azure.cli.core.commands.client_factory import get_subscription_id
+        return resource_id(
+            subscription=get_subscription_id(cli_ctx),
+            resource_group=resource_group_name,
+            namespace='Microsoft.Network',
+            type='virtualNetworks',
+            name=vnet_name,
+            child_type_1='subnets',
+            child_name_1=subnet)
+    raise CLIError('Usage error: --subnet ID | --subnet NAME --vnet-name NAME')

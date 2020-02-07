@@ -10,12 +10,15 @@ from knack.arguments import CLIArgumentType
 from azure.cli.core.commands.parameters import (resource_group_name_type, get_location_type,
                                                 get_resource_name_completion_list, file_type,
                                                 get_three_state_flag, get_enum_type, tags_type)
-from azure.mgmt.web.models import DatabaseType, ConnectionStringType, BuiltInAuthenticationProvider, AzureStorageType
 
-from ._completers import get_hostname_completion_list
-from ._constants import FUNCTIONS_VERSIONS, FUNCTIONS_VERSION_TO_SUPPORTED_RUNTIME_VERSIONS
+from azure.mgmt.web.models import (DatabaseType, ConnectionStringType, BuiltInAuthenticationProvider, AzureStorageType,
+                                   K8SENetworkPlugin)
+
+from ._completers import get_hostname_completion_list, get_kube_sku_completion_list, get_vm_size_completion_list
+from ._constants import FUNCTIONS_VERSIONS, FUNCTIONS_VERSION_TO_SUPPORTED_RUNTIME_VERSIONS, KUBE_DEFAULT_SKU
 from ._validators import (validate_timeout_value, validate_site_create, validate_asp_create,
-                          validate_add_vnet, validate_front_end_scale_factor, validate_ase_create, validate_ip_address)
+                          validate_add_vnet, validate_front_end_scale_factor, validate_ase_create, validate_ip_address,
+                          validate_nodes_count, validate_nodepool_name)
 
 
 AUTH_TYPES = {
@@ -96,7 +99,9 @@ def load_arguments(self, _):
                    validator=validate_asp_create)
         c.argument('app_service_environment', options_list=['--app-service-environment', '-e'],
                    help="Name or ID of the app service environment")
+        c.argument('kube_environment', options_list=['--kube-environment', '-k'], help='Name or ID of the kubernetes environment', is_preview=True)
         c.argument('sku', arg_type=sku_arg_type)
+        c.argument('kube_sku', required=False, help='VM size or ANY', default=KUBE_DEFAULT_SKU, completer=get_kube_sku_completion_list, is_preview=True)
         c.argument('is_linux', action='store_true', required=False, help='host web app on Linux worker')
         c.argument('hyper_v', action='store_true', required=False, help='Host web app on Windows container', is_preview=True)
         c.argument('per_site_scaling', action='store_true', required=False, help='Enable per-app scaling at the '
@@ -107,6 +112,11 @@ def load_arguments(self, _):
 
     with self.argument_context('appservice plan update') as c:
         c.argument('sku', arg_type=sku_arg_type)
+        c.argument('kube_sku', required=False, help='VM size or ANY', completer=get_kube_sku_completion_list)
+        c.argument('per_site_scaling', required=False, arg_type=get_three_state_flag(), help='Enable per-app scaling at the '
+                                                                                             'App Service plan level to allow for '
+                                                                                             'scaling an app independently from '
+                                                                                             'the App Service plan that hosts it.')
         c.ignore('allow_pending_state')
 
     with self.argument_context('webapp create') as c:
@@ -172,6 +182,8 @@ def load_arguments(self, _):
             c.argument('deployment_source_url', options_list=['--deployment-source-url', '-u'], help='Git repository URL to link with manual integration')
             c.argument('deployment_source_branch', options_list=['--deployment-source-branch', '-b'], help='the branch to deploy')
             c.argument('tags', arg_type=tags_type)
+            c.argument('min_worker_count', options_list=['--min-worker-count'], help='Minimum number of workers to be allocated.', type=int, default=None)
+            c.argument('max_worker_count', options_list=['--max-worker-count'], help='Maximum number of workers to be allocated.', type=int, default=None)
 
         with self.argument_context(scope + ' config ssl bind') as c:
             c.argument('ssl_type', help='The ssl cert type', arg_type=get_enum_type(['SNI', 'IP']))
@@ -627,3 +639,38 @@ def load_arguments(self, _):
     with self.argument_context('appservice ase list-plans') as c:
         c.argument('name', options_list=['--name', '-n'],
                    help='Name of the app service environment')
+
+# App Service on Kubernetes Commands
+    with self.argument_context('appservice kube create') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
+        c.argument('node_count', type=int, help='Number of nodes in the default node pool.', validator=validate_nodes_count)
+        c.argument('max_count', type=int, help='Maximum number of nodes for autoscaling.', validator=validate_nodes_count)
+        c.argument('nodepool_name', help='Name of the cluster\'s default node pool.', validator=validate_nodepool_name)
+        c.argument('node_vm_size', help='Size of the default node pool\'s VMs.',
+                   completer=get_vm_size_completion_list)
+        c.argument('client_id', help='Service principal client id.')
+        c.argument('client_secret', help='Service principal client secret.')
+        c.argument('internal_load_balancing', arg_type=get_three_state_flag())
+        c.argument('network_plugin', default='kubenet', arg_type=get_enum_type(K8SENetworkPlugin), help='If vnet subnet is not specified, only kubenet is supported')
+        c.argument('subnet', help='Name or ID of existing subnet. To create vnet and/or subnet \
+                   use `az network vnet [subnet] create`')
+        c.argument('vnet_name', help='Name of the vnet. Mandatory if only subnet name is specified.')
+        c.argument('dns_service_ip', help='Kubernetes Dns Service IP within service_cidr (commonly, .10 address). This is required if a vnet subnet is specified.')
+        c.argument('service_cidr', help='Address space to be used by services (nodeport/clusterip/loadbalancer). It must be within the vnet but not used by subnet. This is required if a vnet subnet is specified')
+        c.argument('docker_bridge_cidr', help='This lets the cluster nodes communicate with the underlying management platform. This IP address must NOT be within the virtual network IP address range of your cluster, and shouldn\'t overlap with other address ranges in use on your network. Default (by AKS) is 172.17.0.1/16. If your VNET overlapped with this, you must specify others.')
+        c.argument('workspace_id', help='Log analytics workspace ID')
+        c.argument('tags', arg_type=tags_type)
+
+    with self.argument_context('appservice kube update') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
+        c.argument('client_id', help='Service principal client id.')
+        c.argument('client_secret', help='Service principal client secret.')
+        c.argument('workspace_id', help='Log analytics workspace ID')
+        c.argument('tags', arg_type=tags_type)
+
+    with self.argument_context('appservice kube delete') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
+        c.argument('force', arg_type=get_three_state_flag())
+
+    with self.argument_context('appservice kube show') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
