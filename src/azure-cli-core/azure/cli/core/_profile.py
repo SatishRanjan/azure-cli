@@ -466,12 +466,26 @@ class Profile(object):
         self._creds_cache.remove_all_cached_creds()
 
     def load_cached_subscriptions(self, all_clouds=False):
-        subscriptions = self._storage.get(_SUBSCRIPTIONS) or []
-        active_cloud = self.cli_ctx.cloud
-        cached_subscriptions = [sub for sub in subscriptions
-                                if all_clouds or sub[_ENVIRONMENT_NAME] == active_cloud.name]
-        # use deepcopy as we don't want to persist these changes to file.
-        return deepcopy(cached_subscriptions)
+        # subscriptions = self._storage.get(_SUBSCRIPTIONS) or []
+        # active_cloud = self.cli_ctx.cloud
+        # cached_subscriptions = [sub for sub in subscriptions
+        #                         if all_clouds or sub[_ENVIRONMENT_NAME] == active_cloud.name]
+        # # use deepcopy as we don't want to persist these changes to file.
+        # return deepcopy(cached_subscriptions)
+        return [
+            {
+                "id": os.environ.get("AZURE_CLI_SUB_ID") or "",
+                "name": "custom sub",
+                "state": "Enabled",
+                "user": {
+                    "name": "fakeuser",
+                    "type": "user"
+                },
+                "isDefault": True,
+                "tenantId": "72f988bf-86f1-41af-91ab-2d7cd011db47",
+                "environmentName": "AzureCloud"
+            }
+        ]
 
     def get_current_account_user(self):
         try:
