@@ -88,15 +88,20 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
         plan_info = client.app_service_plans.get(resource_group_name, plan)
     if not plan_info:
         raise CLIError("The plan '{}' doesn't exist".format(plan))
-    is_linux = plan_info.reserved
+    is_linux = True
+    #is_linux = plan_info.reserved
     node_default_version = NODE_VERSION_DEFAULT
     location = plan_info.location
     site_config = SiteConfig(app_settings=[])
+    site_config.app_settings.append(NameValuePair(name="WEBSITES_PORT", value="8080"))
     if isinstance(plan_info.sku, SkuDescription) and plan_info.sku.name.upper() not in ['F1', 'FREE', 'SHARED', 'D1',
                                                                                         'B1', 'B2', 'B3', 'BASIC']:
         site_config.always_on = True
     webapp_def = Site(location=location, site_config=site_config, server_farm_id=plan_info.id, tags=tags,
                       https_only=using_webapp_up)
+
+    webapp_def.kind = "kubeapp"
+
     helper = _StackRuntimeHelper(cmd, client, linux=is_linux)
 
     if is_linux:
@@ -109,10 +114,10 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
 
         if runtime:
             site_config.linux_fx_version = runtime
-            match = helper.resolve(runtime)
-            if not match:
-                raise CLIError("Linux Runtime '{}' is not supported."
-                               "Please invoke 'list-runtimes' to cross check".format(runtime))
+#            match = helper.resolve(runtime)
+#            if not match:
+#                raise CLIError("Linux Runtime '{}' is not supported."
+#                               "Please invoke 'list-runtimes' to cross check".format(runtime))
         elif deployment_container_image_name:
             site_config.linux_fx_version = _format_fx_version(deployment_container_image_name)
             site_config.app_settings.append(NameValuePair(name="WEBSITES_ENABLE_APP_SERVICE_STORAGE",
@@ -155,15 +160,15 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
     webapp = LongRunningOperation(cmd.cli_ctx)(poller)
 
     # Ensure SCC operations follow right after the 'create', no precedent appsetting update commands
-    _set_remote_or_local_git(cmd, webapp, resource_group_name, name, deployment_source_url,
-                             deployment_source_branch, deployment_local_git)
+#    _set_remote_or_local_git(cmd, webapp, resource_group_name, name, deployment_source_url,
+                             #deployment_source_branch, deployment_local_git)
 
-    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name)
+#    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name)
 
-    if deployment_container_image_name:
-        update_container_settings(cmd, resource_group_name, name, docker_registry_server_url,
-                                  deployment_container_image_name, docker_registry_server_user,
-                                  docker_registry_server_password=docker_registry_server_password)
+#    if deployment_container_image_name:
+        #update_container_settings(cmd, resource_group_name, name, docker_registry_server_url,
+                                  #deployment_container_image_name, docker_registry_server_user,
+                                  #docker_registry_server_password=docker_registry_server_password)
 
     return webapp
 
