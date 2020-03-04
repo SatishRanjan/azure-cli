@@ -25,5 +25,4 @@ def get_kube_sku_completion_list(cmd, prefix, namespace):
     """
     Return the VM sizes allowed by AKS, or 'ANY'
     """
-    # TODO: get the VM sizes of the node pools currently in the kubernetes environment
     return get_vm_size_completion_list(cmd, prefix, namespace) & set(KUBE_DEFAULT_SKU)

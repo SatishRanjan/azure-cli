@@ -52,13 +52,14 @@ from .vsts_cd_provider import VstsContinuousDeliveryProvider
 from ._params import AUTH_TYPES, MULTI_CONTAINER_TYPES, LINUX_RUNTIMES, WINDOWS_RUNTIMES
 from ._client_factory import web_client_factory, ex_handler_factory
 from ._appservice_utils import _generic_site_operation
-from .utils import _normalize_sku, get_sku_name
+from .utils import _normalize_sku, get_sku_name, validate_subnet_id
 from ._create_util import (zip_contents_from_dir, get_runtime_version_details, create_resource_group, get_app_details,
                            should_create_new_rg, set_location, does_app_already_exist, get_profile_username,
                            get_plan_to_use, get_lang_from_content, get_rg_to_use, get_sku_to_use,
                            detect_os_form_src)
 from ._constants import (RUNTIME_TO_DEFAULT_VERSION, NODE_VERSION_DEFAULT_FUNCTIONAPP,
-                         RUNTIME_TO_IMAGE_FUNCTIONAPP, NODE_VERSION_DEFAULT, KUBE_DEFAULT_SKU)
+                         RUNTIME_TO_IMAGE_FUNCTIONAPP, NODE_VERSION_DEFAULT, KUBE_DEFAULT_SKU,
+                         KUBE_ASP_KIND)
 
 logger = get_logger(__name__)
 
@@ -1415,15 +1416,17 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
     elif kube_environment:
         kube_id = _validate_kube_environment_id(cmd.cli_ctx, kube_environment, resource_group_name)
         kube_def = KubeEnvironmentProfile(id=kube_id)
+        kind = KUBE_ASP_KIND
     else:  # Non-ASE
         ase_def = None
         kube_def = None
+        kind = None
         if location is None:
             location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
 
     # the api is odd on parameter naming, have to live with it for now
     sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
-    plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def,
+    plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def, kind=kind,
                               reserved=(is_linux or None), hyper_v=(hyper_v or None), name=name,
                               per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def,
                               kube_environment_profile=kube_def)
@@ -3378,3 +3381,60 @@ def _format_key_vault_id(cli_ctx, key_vault, resource_group_name):
         namespace='Microsoft.KeyVault',
         type='vaults',
         name=key_vault)
+
+
+def create_kube_environment(cmd,
+                            name,
+                            resource_group_name,
+                            client_id,
+                            client_secret,
+                            node_count=3,
+                            max_count=3,
+                            location=None,
+                            nodepool_name='nodepool1',
+                            node_vm_size='Standard_DS2_v2',
+                            network_plugin='kubenet',
+                            internal_load_balancing=False,
+                            subnet=None,
+                            vnet_name=None,
+                            dns_service_ip=None,
+                            service_cidr=None,
+                            docker_bridge_cidr=None,
+                            workspace_id=None,
+                            tags=None,
+                            no_wait=False):
+
+    KubeEnvironmentResource, KubeNodePool = cmd.get_models('KubeEnvironmentResource', 'KubeNodePool')
+    location = location or _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
+
+    if subnet is not None:
+        subnet_id = validate_subnet_id(cmd.cli_ctx, subnet, vnet_name, resource_group_name)
+    else:
+        subnet_id = None
+
+    client = web_client_factory(cmd.cli_ctx)
+
+    # TODO: add some verifications
+    # TODO: support creating service principal automatically
+
+    node_pool_def = KubeNodePool(
+        vm_size=node_vm_size,
+        node_count=node_count,
+        max_node_count=max_count,
+        name=nodepool_name)
+
+    kube_def = KubeEnvironmentResource(
+        location=location,
+        tags=tags,
+        node_pools=[node_pool_def],
+        internal_load_balancer_enabled=internal_load_balancing,
+        vnet_subnet_id=subnet_id,
+        network_plugin=network_plugin,
+        service_cidr=service_cidr,
+        dns_service_ip=dns_service_ip,
+        docker_bridge_cidr=docker_bridge_cidr,
+        service_principal_client_id=client_id,
+        service_principal_client_secret=client_secret,
+        log_analytics_workspace_id=workspace_id)
+
+    return sdk_no_wait(no_wait, client.kube_environments.create, resource_group_name, name, kube_def)

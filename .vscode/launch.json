@@ -9,7 +9,20 @@
             "program": "${workspaceRoot}/src/azure-cli/azure/cli/__main__.py",
             "cwd": "${workspaceRoot}",
             "args": [
-                "--help"
+                "appservice",
+                "kube",
+                "create",
+                "-n",
+                "eben-3-4-0",
+                "-g",
+                "k8se-dev",
+                "--location",
+                "eastus",
+                "--client-id",
+                "41184cbb-54a8-4340-bcfd-ed95d6e7c218",
+                "--client-secret",
+                "QJl4]4-=1fOuh3TLXcWokW_JxhsU=tGO",
+                "--no-wait"
             ],
             "console": "integratedTerminal",
             "debugOptions": [

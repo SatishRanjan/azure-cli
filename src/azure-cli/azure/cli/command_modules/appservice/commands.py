@@ -355,3 +355,6 @@ def load_command_table(self, _):
         g.custom_command('create', 'create_appserviceenvironment_arm', supports_no_wait=True)
         g.custom_command('update', 'update_appserviceenvironment', supports_no_wait=True)
         g.custom_command('delete', 'delete_appserviceenvironment', supports_no_wait=True, confirmation=True)
+
+    with self.command_group('appservice kube', is_preview=True) as g:
+        g.custom_command('create', 'create_kube_environment', supports_no_wait=True)

@@ -162,3 +162,22 @@ def validate_asp_sku(cmd, namespace):
         if res.get('properties').get('hostingEnvironment') is not None:
             raise CLIError("Only pricing tier 'Isolated' is allowed in this app service plan. Use this link to "
                            "learn more: https://docs.microsoft.com/en-us/azure/app-service/overview-hosting-plans")
+
+
+def validate_nodes_count(namespace):
+    """Validates that node_count and max_count is set between 1-100"""
+    if namespace.node_count is not None:
+        if namespace.node_count < 1 or namespace.node_count > 100:
+            raise CLIError('--node-count must be in the range [1,100]')
+    if namespace.max_count is not None:
+        if namespace.max_count < 1 or namespace.max_count > 100:
+            raise CLIError('--max-count must be in the range [1,100]')
+
+
+def validate_nodepool_name(namespace):
+    """Validates a nodepool name to be at most 12 characters, alphanumeric only."""
+    if namespace.nodepool_name != "":
+        if len(namespace.nodepool_name) > 12:
+            raise CLIError('--nodepool-name can contain at most 12 characters')
+        if not namespace.nodepool_name.isalnum():
+            raise CLIError('--nodepool-name should contain only alphanumeric characters')
