@@ -42,3 +42,5 @@ RUNTIME_TO_IMAGE_FUNCTIONAPP = {
         '8': 'mcr.microsoft.com/azure-functions/java:2.0-java8-appservice'
     }
 }
+
+KUBE_DEFAULT_SKU = "ANY"

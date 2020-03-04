@@ -12,8 +12,8 @@ from azure.cli.core.commands.parameters import (resource_group_name_type, get_lo
                                                 get_three_state_flag, get_enum_type, tags_type)
 from azure.mgmt.web.models import DatabaseType, ConnectionStringType, BuiltInAuthenticationProvider, AzureStorageType
 
-from ._completers import get_hostname_completion_list
-from ._constants import RUNTIME_TO_IMAGE_FUNCTIONAPP
+from ._completers import get_hostname_completion_list, get_kube_sku_completion_list
+from ._constants import RUNTIME_TO_IMAGE_FUNCTIONAPP, KUBE_DEFAULT_SKU
 from ._validators import (validate_timeout_value, validate_site_create, validate_asp_create,
                           validate_add_vnet, validate_front_end_scale_factor, validate_ase_create)
 
@@ -86,7 +86,9 @@ def load_arguments(self, _):
                    validator=validate_asp_create)
         c.argument('app_service_environment', options_list=['--app-service-environment', '-e'],
                    help="Name or ID of the app service environment")
+        c.argument('kube_environment', options_list=['--kube-environment', '-k'], help='Name or ID of the kubernetes environment', is_preview=True)
         c.argument('sku', arg_type=sku_arg_type)
+        c.argument('kube_sku', required=False, help='VM size or ANY', default=KUBE_DEFAULT_SKU, completer=get_kube_sku_completion_list)
         c.argument('is_linux', action='store_true', required=False, help='host web app on Linux worker')
         c.argument('hyper_v', action='store_true', required=False, help='Host web app on Windows container', is_preview=True)
         c.argument('per_site_scaling', action='store_true', required=False, help='Enable per-app scaling at the '
@@ -97,6 +99,11 @@ def load_arguments(self, _):
 
     with self.argument_context('appservice plan update') as c:
         c.argument('sku', arg_type=sku_arg_type)
+        c.argument('kube_sku', required=False, help='VM size or ANY', default=KUBE_DEFAULT_SKU, completer=get_kube_sku_completion_list)
+        c.argument('per_site_scaling', required=False, arg_type=get_three_state_flag(), help='Enable per-app scaling at the '
+                                                                                             'App Service plan level to allow for '
+                                                                                             'scaling an app independently from '
+                                                                                             'the App Service plan that hosts it.')
         c.ignore('allow_pending_state')
 
     with self.argument_context('webapp create') as c:

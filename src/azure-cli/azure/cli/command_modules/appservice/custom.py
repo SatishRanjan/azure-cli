@@ -58,7 +58,7 @@ from ._create_util import (zip_contents_from_dir, get_runtime_version_details, c
                            get_plan_to_use, get_lang_from_content, get_rg_to_use, get_sku_to_use,
                            detect_os_form_src)
 from ._constants import (RUNTIME_TO_DEFAULT_VERSION, NODE_VERSION_DEFAULT_FUNCTIONAPP,
-                         RUNTIME_TO_IMAGE_FUNCTIONAPP, NODE_VERSION_DEFAULT)
+                         RUNTIME_TO_IMAGE_FUNCTIONAPP, NODE_VERSION_DEFAULT, KUBE_DEFAULT_SKU)
 
 logger = get_logger(__name__)
 
@@ -1388,10 +1388,10 @@ def list_app_service_plans(cmd, resource_group_name=None):
 
 
 def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, per_site_scaling=False,
-                            app_service_environment=None, sku='B1', number_of_workers=None, location=None,
-                            tags=None, no_wait=False):
-    HostingEnvironmentProfile, SkuDescription, AppServicePlan = cmd.get_models(
-        'HostingEnvironmentProfile', 'SkuDescription', 'AppServicePlan')
+                            app_service_environment=None, kube_environment=None, sku='B1', kube_sku=KUBE_DEFAULT_SKU,
+                            number_of_workers=None, location=None, tags=None, no_wait=False):
+    HostingEnvironmentProfile, SkuDescription, AppServicePlan, KubeEnvironmentProfile = cmd.get_models(
+        'HostingEnvironmentProfile', 'SkuDescription', 'AppServicePlan', 'KubeEnvironmentProfile')
     sku = _normalize_sku(sku)
     _validate_asp_sku(app_service_environment, sku)
     if is_linux and hyper_v:
@@ -1412,8 +1412,12 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
                 break
         if not ase_found:
             raise CLIError("App service environment '{}' not found in subscription.".format(ase_id))
+    elif kube_environment:
+        kube_id = _validate_kube_environment_id(cmd.cli_ctx, kube_environment, resource_group_name)
+        kube_def = KubeEnvironmentProfile(id=kube_id)
     else:  # Non-ASE
         ase_def = None
+        kube_def = None
         if location is None:
             location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
 
@@ -1421,14 +1425,16 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
     sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
     plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def,
                               reserved=(is_linux or None), hyper_v=(hyper_v or None), name=name,
-                              per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def)
+                              per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def,
+                              kube_environment_profile=kube_def)
     return sdk_no_wait(no_wait, client.app_service_plans.create_or_update, name=name,
                        resource_group_name=resource_group_name, app_service_plan=plan_def)
 
 
-def update_app_service_plan(instance, sku=None, number_of_workers=None):
-    if number_of_workers is None and sku is None:
-        logger.warning('No update is done. Specify --sku and/or --number-of-workers.')
+def update_app_service_plan(instance, sku=None, number_of_workers=None, per_site_scaling=None,
+                            kube_sku=KUBE_DEFAULT_SKU):
+    if number_of_workers is None and sku is None and per_site_scaling is None:
+        logger.warning('No update is done. Specify --sku and/or --number-of-workers and/or --per-site-scaling.')
     sku_def = instance.sku
     if sku is not None:
         sku = _normalize_sku(sku)
@@ -1438,6 +1444,10 @@ def update_app_service_plan(instance, sku=None, number_of_workers=None):
     if number_of_workers is not None:
         sku_def.capacity = number_of_workers
     instance.sku = sku_def
+
+    if per_site_scaling is not None:
+        instance.per_site_scaling = per_site_scaling
+
     return instance
 
 
@@ -3328,6 +3338,19 @@ def _validate_app_service_environment_id(cli_ctx, ase, resource_group_name):
         namespace='Microsoft.Web',
         type='hostingEnvironments',
         name=ase)
+
+def _validate_kube_environment_id(cli_ctx, kube_environment, resource_group_name):
+    if is_valid_resource_id(kube_environment):
+        return kube_environment
+
+    from msrestazure.tools import resource_id
+    from azure.cli.core.commands.client_factory import get_subscription_id
+    return resource_id(
+        subscription=get_subscription_id(cli_ctx),
+        resource_group=resource_group_name,
+        namespace='Microsoft.Web',
+        type='kubeEnvironments',
+        name=kube_environment)
 
 
 def _validate_asp_sku(app_service_environment, sku):
