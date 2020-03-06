@@ -59,7 +59,7 @@ from ._create_util import (zip_contents_from_dir, get_runtime_version_details, c
                            detect_os_form_src)
 from ._constants import (RUNTIME_TO_DEFAULT_VERSION, NODE_VERSION_DEFAULT_FUNCTIONAPP,
                          RUNTIME_TO_IMAGE_FUNCTIONAPP, NODE_VERSION_DEFAULT, KUBE_DEFAULT_SKU,
-                         KUBE_ASP_KIND)
+                         KUBE_ASP_KIND, KUBE_APP_KIND)
 
 logger = get_logger(__name__)
 
@@ -89,23 +89,25 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
         plan_info = client.app_service_plans.get(resource_group_name, plan)
     if not plan_info:
         raise CLIError("The plan '{}' doesn't exist".format(plan))
-    is_linux = True
-    #is_linux = plan_info.reserved
+    is_linux = plan_info.reserved
     node_default_version = NODE_VERSION_DEFAULT
     location = plan_info.location
     site_config = SiteConfig(app_settings=[])
-    site_config.app_settings.append(NameValuePair(name="WEBSITES_PORT", value="8080"))
+    #site_config.app_settings.append(NameValuePair(name="WEBSITES_PORT", value="8080"))
     if isinstance(plan_info.sku, SkuDescription) and plan_info.sku.name.upper() not in ['F1', 'FREE', 'SHARED', 'D1',
                                                                                         'B1', 'B2', 'B3', 'BASIC']:
         site_config.always_on = True
     webapp_def = Site(location=location, site_config=site_config, server_farm_id=plan_info.id, tags=tags,
                       https_only=using_webapp_up)
 
-    webapp_def.kind = "kubeapp"
+    is_kube = False
+    if plan_info.kind.upper() == KUBE_ASP_KIND:
+        webapp_def.kind = KUBE_APP_KIND
+        is_kube = True
 
-    helper = _StackRuntimeHelper(cmd, client, linux=is_linux)
+    helper = _StackRuntimeHelper(cmd, client, linux=(is_linux or is_kube))
 
-    if is_linux:
+    if is_linux or is_kube:
         if not validate_container_app_create_options(runtime, deployment_container_image_name,
                                                      multicontainer_config_type, multicontainer_config_file):
             raise CLIError("usage error: --runtime | --deployment-container-image-name |"
@@ -115,10 +117,10 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
 
         if runtime:
             site_config.linux_fx_version = runtime
-#            match = helper.resolve(runtime)
-#            if not match:
-#                raise CLIError("Linux Runtime '{}' is not supported."
-#                               "Please invoke 'list-runtimes' to cross check".format(runtime))
+            match = helper.resolve(runtime)
+            if not match:
+                raise CLIError("Linux Runtime '{}' is not supported."
+                               "Please invoke 'list-runtimes' to cross check".format(runtime))
         elif deployment_container_image_name:
             site_config.linux_fx_version = _format_fx_version(deployment_container_image_name)
             site_config.app_settings.append(NameValuePair(name="WEBSITES_ENABLE_APP_SERVICE_STORAGE",
@@ -160,16 +162,19 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
     poller = client.web_apps.create_or_update(resource_group_name, name, webapp_def)
     webapp = LongRunningOperation(cmd.cli_ctx)(poller)
 
+    if is_kube:
+        return webapp
+
     # Ensure SCC operations follow right after the 'create', no precedent appsetting update commands
-#    _set_remote_or_local_git(cmd, webapp, resource_group_name, name, deployment_source_url,
-                             #deployment_source_branch, deployment_local_git)
+    _set_remote_or_local_git(cmd, webapp, resource_group_name, name, deployment_source_url,
+                             deployment_source_branch, deployment_local_git)
 
-#    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name)
+    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name)
 
-#    if deployment_container_image_name:
-        #update_container_settings(cmd, resource_group_name, name, docker_registry_server_url,
-                                  #deployment_container_image_name, docker_registry_server_user,
-                                  #docker_registry_server_password=docker_registry_server_password)
+    if deployment_container_image_name:
+        update_container_settings(cmd, resource_group_name, name, docker_registry_server_url,
+                                  deployment_container_image_name, docker_registry_server_user,
+                                  docker_registry_server_password=docker_registry_server_password)
 
     return webapp
 
@@ -509,7 +514,11 @@ def show_webapp(cmd, resource_group_name, name, slot=None, app_instance=None):
     if not webapp:
         raise CLIError("'{}' app doesn't exist".format(name))
     _rename_server_farm_props(webapp)
-    _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name, slot)
+
+    # TODO: get rid of this conditional once the api's are implemented for kubapps
+    if webapp.kind.lower() != KUBE_APP_KIND:
+        _fill_ftp_publishing_url(cmd, webapp, resource_group_name, name, slot)
+
     return webapp
 
 
@@ -1398,6 +1407,8 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
     if is_linux and hyper_v:
         raise CLIError('usage error: --is-linux | --hyper-v')
 
+    kind = None
+
     client = web_client_factory(cmd.cli_ctx)
     if app_service_environment:
         if hyper_v:
@@ -1413,19 +1424,26 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
                 break
         if not ase_found:
             raise CLIError("App service environment '{}' not found in subscription.".format(ase_id))
-    elif kube_environment:
+    else:  # Non-ASE
+        ase_def = None
+
+    if kube_environment and ase_def is None:
         kube_id = _validate_kube_environment_id(cmd.cli_ctx, kube_environment, resource_group_name)
         kube_def = KubeEnvironmentProfile(id=kube_id)
         kind = KUBE_ASP_KIND
-    else:  # Non-ASE
-        ase_def = None
+        sku_def = SkuDescription(tier=kube_sku, name="KUBE", capacity=number_of_workers)
+    else:
         kube_def = None
-        kind = None
-        if location is None:
-            location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
 
-    # the api is odd on parameter naming, have to live with it for now
-    sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
+    if location is None:
+        location = _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
+
+    if kube_environment:
+        sku_def = SkuDescription(tier=kube_sku, name="KUBE", capacity=number_of_workers)
+    else:
+        # the api is odd on parameter naming, have to live with it for now
+        sku_def = SkuDescription(tier=get_sku_name(sku), name=sku, capacity=number_of_workers)
+
     plan_def = AppServicePlan(location=location, tags=tags, sku=sku_def, kind=kind,
                               reserved=(is_linux or None), hyper_v=(hyper_v or None), name=name,
                               per_site_scaling=per_site_scaling, hosting_environment_profile=ase_def,
