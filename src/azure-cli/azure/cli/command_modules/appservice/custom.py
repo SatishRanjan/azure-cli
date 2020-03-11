@@ -1455,12 +1455,15 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
 def update_app_service_plan(instance, sku=None, number_of_workers=None, per_site_scaling=None,
                             kube_sku=KUBE_DEFAULT_SKU):
     if number_of_workers is None and sku is None and per_site_scaling is None:
-        logger.warning('No update is done. Specify --sku and/or --number-of-workers and/or --per-site-scaling.')
+        logger.warning('No update is done. Specify --sku and/or --kube-sku and/or --number-of-workers and/or --per-site-scaling.')
     sku_def = instance.sku
     if sku is not None:
         sku = _normalize_sku(sku)
         sku_def.tier = get_sku_name(sku)
         sku_def.name = sku
+
+    if kube_sku is not None:
+        sku_def.tier = kube_sku
 
     if number_of_workers is not None:
         sku_def.capacity = number_of_workers
