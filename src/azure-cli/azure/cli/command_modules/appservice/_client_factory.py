@@ -49,3 +49,16 @@ def cf_providers(cli_ctx, _):
 
 def cf_web_client(cli_ctx, _):
     return web_client_factory(cli_ctx)
+
+
+def cf_compute_service(cli_ctx, *_):
+    from azure.cli.core.profiles import ResourceType
+    from azure.cli.core.commands.client_factory import get_mgmt_service_client
+    return get_mgmt_service_client(cli_ctx, ResourceType.MGMT_COMPUTE)
+
+
+def cf_resource_groups(cli_ctx, subscription_id=None):
+    from azure.cli.core.profiles import ResourceType
+    from azure.cli.core.commands.client_factory import get_mgmt_service_client
+    return get_mgmt_service_client(cli_ctx, ResourceType.MGMT_RESOURCE_RESOURCES,
+                                   subscription_id=subscription_id).resource_groups

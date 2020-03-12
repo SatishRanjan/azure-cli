@@ -16,6 +16,8 @@ from azure.cli.core.util import sdk_no_wait
 
 from azure.cli.command_modules.network._client_factory import network_client_factory
 
+from .utils import validate_subnet_id
+
 VERSION_2019_02_01 = "2019-02-01"
 
 logger = get_logger(__name__)
@@ -46,7 +48,7 @@ def create_appserviceenvironment_arm(cmd, resource_group_name, name, subnet, vne
     # and thus will not allow you to define an Internal ASE (combining web and publishing flag).
     # Therefore the current method use direct ARM.
     location = location or _get_location_from_resource_group(cmd.cli_ctx, resource_group_name)
-    subnet_id = _validate_subnet_id(cmd.cli_ctx, subnet, vnet_name, resource_group_name)
+    subnet_id = validate_subnet_id(cmd.cli_ctx, subnet, vnet_name, resource_group_name)
 
     _validate_subnet_empty(cmd.cli_ctx, subnet_id)
     if not ignore_subnet_size_validation:
@@ -147,26 +149,6 @@ def _get_resource_group_name_from_ase(ase_client, ase_name):
     if not ase_found:
         raise CLIError("App service environment '{}' not found in subscription.".format(ase_name))
     return resource_group
-
-
-def _validate_subnet_id(cli_ctx, subnet, vnet_name, resource_group_name):
-    from msrestazure.tools import is_valid_resource_id
-    subnet_is_id = is_valid_resource_id(subnet)
-
-    if subnet_is_id and not vnet_name:
-        return subnet
-    if subnet and not subnet_is_id and vnet_name:
-        from msrestazure.tools import resource_id
-        from azure.cli.core.commands.client_factory import get_subscription_id
-        return resource_id(
-            subscription=get_subscription_id(cli_ctx),
-            resource_group=resource_group_name,
-            namespace='Microsoft.Network',
-            type='virtualNetworks',
-            name=vnet_name,
-            child_type_1='subnets',
-            child_name_1=subnet)
-    raise CLIError('Usage error: --subnet ID | --subnet NAME --vnet-name NAME')
 
 
 def _map_worker_sku(sku_name):
