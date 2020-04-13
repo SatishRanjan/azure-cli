@@ -2410,7 +2410,7 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
                            .format(runtime_version, runtime, ', '.join(allowed_versions)))
 
     con_string = _validate_and_get_connection_string(cmd.cli_ctx, resource_group_name, storage_account)
-    
+
     if is_linux:
         functionapp_def.kind = 'functionapp,linux'
         functionapp_def.reserved = True
@@ -2521,8 +2521,7 @@ def _get_linux_fx_functionapp(is_consumption, runtime, runtime_version):
 
 def _get_linux_fx_kube_functionapp(runtime, runtime_version):
     if runtime.upper() == "DOTNET":
-        runtime = "DOTNETCORE"
-        #runtime_version = runtime_version + ".0"
+        runtime = "DOTNETCORE"       
     return '{}|{}'.format(runtime.upper(), runtime_version)
 
 def _get_website_node_version_functionapp(runtime, runtime_version):
