@@ -2587,7 +2587,6 @@ def _validate_and_get_connection_string(cli_ctx, resource_group_name, storage_ac
         sa_resource_group = parse_resource_id(storage_account)['resource_group']
         storage_account = parse_resource_id(storage_account)['name']
     storage_client = get_mgmt_service_client(cli_ctx, StorageManagementClient)
-    storage_client.config.base_url = "https://management.azure.com/"
     storage_properties = storage_client.storage_accounts.get_properties(sa_resource_group,
                                                                         storage_account)
     error_message = ''
