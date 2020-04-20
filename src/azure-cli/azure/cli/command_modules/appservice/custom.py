@@ -2383,6 +2383,10 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
         functionapp_def.server_farm_id = plan
         functionapp_def.location = location
 
+    is_kube = False
+    if plan_info.kind.upper() == KUBE_ASP_KIND:
+        is_kube = True
+
     if is_linux and not runtime and (consumption_plan_location or not deployment_container_image_name):
         raise CLIError(
             "usage error: --runtime RUNTIME required for linux functions apps without custom image.")
@@ -2432,6 +2436,22 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
                     raise CLIError("An appropriate linux image for runtime:'{}' was not found".format(runtime))
         if deployment_container_image_name is None:
             site_config.linux_fx_version = _get_linux_fx_functionapp(is_consumption, runtime, runtime_version)
+    elif is_kube:
+        functionapp_def.kind = 'kubeapp,functionapp,linux'
+        functionapp_def.reserved = True
+        site_config.app_settings.append(NameValuePair(name='WEBSITES_PORT', value='80'))
+        site_config.app_settings.append(NameValuePair(name='FUNCTIONS_EXTENSION_VERSION', value='~2'))
+        site_config.app_settings.append(NameValuePair(name='MACHINEKEY_DecryptionKey',
+                                                      value=str(hexlify(urandom(32)).decode()).upper()))
+        if deployment_container_image_name:
+            functionapp_def.kind = 'kubeapp,functionapp,linux,container'
+            site_config.app_settings.append(NameValuePair(name='DOCKER_CUSTOM_IMAGE_NAME',
+                                                          value=deployment_container_image_name))
+            site_config.app_settings.append(NameValuePair(name='FUNCTION_APP_EDIT_MODE', value='readOnly'))
+            site_config.linux_fx_version = _format_fx_version(deployment_container_image_name)
+        else:
+            site_config.app_settings.append(NameValuePair(name='WEBSITES_ENABLE_APP_SERVICE_STORAGE', value='true'))
+            site_config.linux_fx_version = _get_linux_fx_kube_functionapp(runtime, runtime_version)                                                   
     else:
         functionapp_def.kind = 'functionapp'
         site_config.app_settings.append(NameValuePair(name='FUNCTIONS_EXTENSION_VERSION', value='~2'))
@@ -2499,6 +2519,10 @@ def _get_linux_fx_functionapp(is_consumption, runtime, runtime_version):
     # App service or Elastic Premium
     return _format_fx_version(RUNTIME_TO_IMAGE_FUNCTIONAPP[runtime][runtime_version])
 
+def _get_linux_fx_kube_functionapp(runtime, runtime_version):
+    if runtime.upper() == "DOTNET":
+        runtime = "DOTNETCORE"       
+    return '{}|{}'.format(runtime.upper(), runtime_version)
 
 def _get_website_node_version_functionapp(runtime, runtime_version):
     if runtime is None or runtime != 'node':
