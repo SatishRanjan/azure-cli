@@ -645,3 +645,6 @@ def load_arguments(self, _):
         c.argument('docker_bridge_cidr', help='This lets the cluster nodes communicate with the underlying management platform. This IP address must NOT be within the virtual network IP address range of your cluster, and shouldn\'t overlap with other address ranges in use on your network. Default (by AKS) is 172.17.0.1/16. If your VNET overlapped with this, you must specify others.')
         c.argument('workspace_id', help='Log analytics workspace ID')
         c.argument('tags', arg_type=tags_type)
+
+    with self.argument_context('appservice kube show') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')

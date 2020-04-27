@@ -3483,3 +3483,8 @@ def create_kube_environment(cmd,
         log_analytics_workspace_id=workspace_id)
 
     return sdk_no_wait(no_wait, client.kube_environments.create, resource_group_name, name, kube_def)
+
+
+def show_kube_environment(cmd, name, resource_group_name):
+    client = web_client_factory(cmd.cli_ctx)
+    return client.kube_environments.get(resource_group_name, name)

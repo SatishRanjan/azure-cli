@@ -1990,3 +1990,12 @@ helps['appservice kube create'] = """
               --client-id MyServicePrincipalClientId \\
               --client-secret MyServicePrincipalClientSecret
 """
+
+helps['appservice kube show'] = """
+    type: command
+    short-summary: Show a kubernetes environment.
+    examples:
+    - name: Show Kubernetes Environment.
+      text: |
+          az appservice kube create -n MyKubeEnvironment -g MyResourceGroup
+"""
