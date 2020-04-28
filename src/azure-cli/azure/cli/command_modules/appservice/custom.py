@@ -1431,7 +1431,15 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
         kube_id = _validate_kube_environment_id(cmd.cli_ctx, kube_environment, resource_group_name)
         kube_def = KubeEnvironmentProfile(id=kube_id)
         kind = KUBE_ASP_KIND
-        sku_def = SkuDescription(tier=kube_sku, name="KUBE", capacity=number_of_workers)
+        parsed_id = parse_resource_id(kube_id)
+        kube_name = parsed_id.get("name")
+        kube_rg = parsed_id.get("resource_group")
+        if kube_name is not None and kube_rg is not None:
+            kube_env = _get_kube_environment(cmd, kube_name, kube_rg)
+            if kube_env is not None:
+                location = kube_env.location
+            else:
+                raise CLIError("Kube Environment '{}' not found in subscription.".format(kube_id))
     else:
         kube_def = None
 
@@ -1455,7 +1463,8 @@ def create_app_service_plan(cmd, resource_group_name, name, is_linux, hyper_v, p
 def update_app_service_plan(instance, sku=None, number_of_workers=None, per_site_scaling=None,
                             kube_sku=KUBE_DEFAULT_SKU):
     if number_of_workers is None and sku is None and per_site_scaling is None:
-        logger.warning('No update is done. Specify --sku and/or --kube-sku and/or --number-of-workers and/or --per-site-scaling.')
+        logger.warning(
+            'No update is done. Specify --sku and/or --kube-sku and/or --number-of-workers and/or --per-site-scaling.')
     sku_def = instance.sku
     if sku is not None:
         sku = _normalize_sku(sku)
@@ -3486,5 +3495,9 @@ def create_kube_environment(cmd,
 
 
 def show_kube_environment(cmd, name, resource_group_name):
+    return _get_kube_environment(cmd, name, resource_group_name)
+
+
+def _get_kube_environment(cmd, name, resource_group_name):
     client = web_client_factory(cmd.cli_ctx)
     return client.kube_environments.get(resource_group_name, name)
