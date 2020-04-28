@@ -3498,6 +3498,30 @@ def show_kube_environment(cmd, name, resource_group_name):
     return _get_kube_environment(cmd, name, resource_group_name)
 
 
+def list_kube_environments(cmd, resource_group_name=None):
+    client = web_client_factory(cmd.cli_ctx)
+    if resource_group_name is None:
+        return client.kube_environments.list_by_subscription()
+    else:
+        return client.kube_environments.list_by_resource_group(resource_group_name)
+
+
+def update_kube_environment(cmd,
+                            name,
+                            resource_group_name,
+                            client_id=None,
+                            client_secret=None,
+                            workspace_id=None,
+                            tags=None,
+                            no_wait=False):
+    raise CLIError("Update is not yet supported for Kubernetes Environments.")
+
+
+def delete_kube_environment(cmd, name, resource_group_name, force=False, no_wait=False):
+    client = web_client_factory(cmd.cli_ctx)
+    return sdk_no_wait(no_wait, client.kube_environments.delete, resource_group_name, name, force)
+
+
 def _get_kube_environment(cmd, name, resource_group_name):
     client = web_client_factory(cmd.cli_ctx)
     return client.kube_environments.get(resource_group_name, name)

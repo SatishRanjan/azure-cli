@@ -1984,18 +1984,48 @@ helps['appservice kube create'] = """
     type: command
     short-summary: Create a kubernetes environment.
     examples:
-    - name: Create Kubernetes Environment with default values.
+    - name: Create kubernetes environment with default values.
       text: |
           az appservice kube create -n MyKubeEnvironment -g MyResourceGroup \\
               --client-id MyServicePrincipalClientId \\
               --client-secret MyServicePrincipalClientSecret
 """
 
+helps['appservice kube update'] = """
+    type: command
+    short-summary: Update a kubernetes environment.
+    examples:
+    - name: Update the kubernetes environment's Log Analytics workspace ID.
+      text: |
+          az appservice kube update -n MyKubeEnvironment -g MyResourceGroup \\
+              --workspace-id MyLogAnalyticsWorkspaceResourceId
+"""
+
 helps['appservice kube show'] = """
     type: command
-    short-summary: Show a kubernetes environment.
+    short-summary: Show the details of a kubernetes environment.
     examples:
-    - name: Show Kubernetes Environment.
+    - name: Show the details of a kubernetes environment.
       text: |
-          az appservice kube create -n MyKubeEnvironment -g MyResourceGroup
+          az appservice kube show -n MyKubeEnvironment -g MyResourceGroup
+"""
+
+helps['appservice kube list'] = """
+    type: command
+    short-summary: List kubernetes environments by subscription or resource group.
+    examples:
+    - name: List kubernetes environments by subscription.
+      text: |
+          az appservice kube list
+    - name: List kubernetes environments by resource group.
+      text: |
+          az appservice kube list -g MyResourceGroup
+"""
+
+helps['appservice kube delete'] = """
+    type: command
+    short-summary: Delete kubernetes environment.
+    examples:
+    - name: Delete kubernetes environment.
+      text: az appservice kube delete -g MyResourceGroup -n MyKubeEnvironment
 """

@@ -91,7 +91,7 @@ def load_arguments(self, _):
                    help="Name or ID of the app service environment")
         c.argument('kube_environment', options_list=['--kube-environment', '-k'], help='Name or ID of the kubernetes environment', is_preview=True)
         c.argument('sku', arg_type=sku_arg_type)
-        c.argument('kube_sku', required=False, help='VM size or ANY', default=KUBE_DEFAULT_SKU, completer=get_kube_sku_completion_list)
+        c.argument('kube_sku', required=False, help='VM size or ANY', default=KUBE_DEFAULT_SKU, completer=get_kube_sku_completion_list, is_preview=True)
         c.argument('is_linux', action='store_true', required=False, help='host web app on Linux worker')
         c.argument('hyper_v', action='store_true', required=False, help='Host web app on Windows container', is_preview=True)
         c.argument('per_site_scaling', action='store_true', required=False, help='Enable per-app scaling at the '
@@ -645,6 +645,17 @@ def load_arguments(self, _):
         c.argument('docker_bridge_cidr', help='This lets the cluster nodes communicate with the underlying management platform. This IP address must NOT be within the virtual network IP address range of your cluster, and shouldn\'t overlap with other address ranges in use on your network. Default (by AKS) is 172.17.0.1/16. If your VNET overlapped with this, you must specify others.')
         c.argument('workspace_id', help='Log analytics workspace ID')
         c.argument('tags', arg_type=tags_type)
+
+    with self.argument_context('appservice kube update') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
+        c.argument('client_id', help='Service principal client id.')
+        c.argument('client_secret', help='Service principal client secret.')
+        c.argument('workspace_id', help='Log analytics workspace ID')
+        c.argument('tags', arg_type=tags_type)
+
+    with self.argument_context('appservice kube delete') as c:
+        c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
+        c.argument('force', arg_type=get_three_state_flag())
 
     with self.argument_context('appservice kube show') as c:
         c.argument('name', arg_type=name_arg_type, help='Name of the kubernetes environment.')
