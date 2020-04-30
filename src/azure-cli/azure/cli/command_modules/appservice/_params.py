@@ -172,6 +172,8 @@ def load_arguments(self, _):
             c.argument('deployment_source_url', options_list=['--deployment-source-url', '-u'], help='Git repository URL to link with manual integration')
             c.argument('deployment_source_branch', options_list=['--deployment-source-branch', '-b'], help='the branch to deploy')
             c.argument('tags', arg_type=tags_type)
+            c.argument('min_worker_count', options_list=['--min-worker-count'], help='Minimum number of workers to be allocated.', type=int, default=None)
+            c.argument('max_worker_count', options_list=['--max-worker-count'], help='Maximum number of workers to be allocated.', type=int, default=None)
 
         with self.argument_context(scope + ' config ssl bind') as c:
             c.argument('ssl_type', help='The ssl cert type', arg_type=get_enum_type(['SNI', 'IP']))
