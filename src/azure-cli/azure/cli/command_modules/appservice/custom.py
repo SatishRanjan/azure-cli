@@ -108,9 +108,7 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
 
     if is_kube:
         if min_worker_count is not None:
-            site_config = SiteConfig(app_settings=[], number_of_workers=min_worker_count)
-        else:
-            site_config = SiteConfig(app_settings=[])
+            site_config.number_of_workers = min_worker_count
 
         if max_worker_count is not None:
             site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
@@ -2372,6 +2370,8 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
         raise CLIError("usage error: --plan NAME_OR_ID | --consumption-plan-location LOCATION")
     SiteConfig, Site, NameValuePair = cmd.get_models('SiteConfig', 'Site', 'NameValuePair')
     docker_registry_server_url = parse_docker_image_name(deployment_container_image_name)
+
+    site_config = SiteConfig(app_settings=[])
     functionapp_def = Site(location=None, site_config=site_config, tags=tags)
     client = web_client_factory(cmd.cli_ctx)
     plan_info = None
@@ -2407,9 +2407,7 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
 
     if is_kube:
         if min_worker_count is not None:
-            site_config = SiteConfig(app_settings=[], number_of_workers=min_worker_count)
-        else:
-            site_config = SiteConfig(app_settings=[])
+            site_config.number_of_workers = min_worker_count    
 
         if max_worker_count is not None:
             site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
