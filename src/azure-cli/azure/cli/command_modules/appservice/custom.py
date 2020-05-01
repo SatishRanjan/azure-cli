@@ -73,7 +73,8 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
                   deployment_container_image_name=None, deployment_source_url=None, deployment_source_branch='master',
                   deployment_local_git=None, docker_registry_server_password=None, docker_registry_server_user=None,
                   multicontainer_config_type=None, multicontainer_config_file=None, tags=None,
-                  using_webapp_up=False, language=None):
+                  using_webapp_up=False, language=None,
+                  min_worker_count=None, max_worker_count=None):
     SiteConfig, SkuDescription, Site, NameValuePair = cmd.get_models(
         'SiteConfig', 'SkuDescription', 'Site', 'NameValuePair')
     if deployment_source_url and deployment_local_git:
@@ -104,6 +105,13 @@ def create_webapp(cmd, resource_group_name, name, plan, runtime=None, startup_fi
     if plan_info.kind.upper() == KUBE_ASP_KIND:
         webapp_def.kind = KUBE_APP_KIND
         is_kube = True
+
+    if is_kube:
+        if min_worker_count is not None:
+            site_config.number_of_workers = min_worker_count
+
+        if max_worker_count is not None:
+            site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
 
     helper = _StackRuntimeHelper(cmd, client, linux=(is_linux or is_kube))
 
@@ -2353,7 +2361,8 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
                     app_insights=None, app_insights_key=None, disable_app_insights=None, deployment_source_url=None,
                     deployment_source_branch='master', deployment_local_git=None,
                     docker_registry_server_password=None, docker_registry_server_user=None,
-                    deployment_container_image_name=None, tags=None):
+                    deployment_container_image_name=None, tags=None,
+                    min_worker_count=None, max_worker_count=None):
     # pylint: disable=too-many-statements, too-many-branches
     if deployment_source_url and deployment_local_git:
         raise CLIError('usage error: --deployment-source-url <url> | --deployment-local-git')
@@ -2395,6 +2404,13 @@ def create_function(cmd, resource_group_name, name, storage_account, plan=None,
     is_kube = False
     if plan_info.kind.upper() == KUBE_ASP_KIND:
         is_kube = True
+
+    if is_kube:
+        if min_worker_count is not None:
+            site_config.number_of_workers = min_worker_count    
+
+        if max_worker_count is not None:
+            site_config.app_settings.append(NameValuePair(name='K8SE_APP_MAX_INSTANCE_COUNT', value=max_worker_count))
 
     if is_linux and not runtime and (consumption_plan_location or not deployment_container_image_name):
         raise CLIError(
