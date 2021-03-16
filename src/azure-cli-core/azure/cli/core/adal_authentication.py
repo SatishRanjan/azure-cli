@@ -123,9 +123,11 @@ class AdalAuthentication(Authentication):  # pylint: disable=too-few-public-meth
         session = session or super(AdalAuthentication, self).signed_session()
 
         private_cert = os.environ.get("AZURE_CLI_CLIENT_CERT_PATH")
-        if private_cert is not None and private_cert != "":
+        endpoint = os.environ.get("AZURE_CLI_PRIVATE_GEO")
+        if private_cert is not None and private_cert != "" and endpoint is not None and endpoint != "":
             session.cert = private_cert
             session.verify = False
+            session.headers['Referer'] = endpoint
             return session
 
         scheme, token, _, external_tenant_tokens = self._get_token()
