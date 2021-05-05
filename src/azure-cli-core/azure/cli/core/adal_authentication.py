@@ -5,6 +5,7 @@
 
 import requests
 import adal
+import os
 
 from msrest.authentication import Authentication
 from msrestazure.azure_active_directory import MSIAuthentication
